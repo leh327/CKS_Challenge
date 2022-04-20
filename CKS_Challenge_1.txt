@@ -1,0 +1,121 @@
+PROBLEM:
+here are 6 images listed in the diagram on the right. Using Aquasec Trivy 
+(which is already installed on the controlplane node), identify the image that has the least number 
+of critical vulnerabilities and use it to deploy the alpha-xyz deployment.
+
+Secure this deployment by enforcing the AppArmor profile called custom-nginx.
+
+Expose this deployment with a NodePort type service and make sure that only incomings 
+connections from the pod called middleware is accepted and everything else is rejected.
+
+Click on each icon to see more details. Once done, click the Check button to test your work.
+
+SOLUTION:
+
+
+Check to make sure apparmor service is running
+systemctl status apparmor
+
+kubectl config set-context --current --namespace=alpha
+
+kubectl get pvc -o yaml pvc.yml
+kubectl delete -f pvc.yml
+sed -i s/ReadWriteOnce/ReadWriteMany/g pvc.yml
+kubectl create -f pvc.yml
+
+cat>alpha-xyz.yml<<EOF
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  creationTimestamp: null
+  labels:
+    app: alpha-xyz
+  name: alpha-xyz
+  namespace: alpha
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: alpha-xyz
+  strategy: {}
+  template:
+    metadata:
+      annotations:
+        container.apparmor.security.beta.kubernetes.io/nginx: localhost/custom-nginx
+      name: alpha-xyz
+      labels:
+        app: alpha-xyz
+    spec:
+      volumes:
+      - name: data-volume
+        persistentVolumeClaim:
+          claimName: alpha-pvc
+      containers:
+      - image: nginx:alpine
+        name: nginx
+        volumeMounts:
+        - name: data-volume
+          mountPath: /usr/share/nginx/html
+---          
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: restrict-inbound
+  namespace: alpha
+spec:
+  podSelector:
+    matchLabels:
+      app: alpha-xyz
+  policyTypes:
+    - Ingress
+  ingress:
+    - from:
+        - namespaceSelector:
+            matchLabels:
+              kubernetes.io/metadata.name: alpha
+          podSelector:
+            matchLabels:
+              app: middleware
+      ports:
+        - protocol: TCP
+          port: 80
+
+---
+apiVersion: v1
+kind: Service
+metadata:
+  creationTimestamp: null
+  labels:
+    app: alpha-xyz
+  name: alpha-svc
+  namespace: alpha
+spec:
+  ports:
+  - port: 80
+    protocol: TCP
+    targetPort: 80
+  selector:
+    app: alpha-xyz
+  type: ClusterIP
+EOF
+
+kubectl create -f alpha-xyz.yml
+
+kubectl get all
+# The alpha-xyz pod should be in Block status
+
+apparmor_parser -a /etc/apparmor.d/usr.sbin.nginx
+
+kubectl get all
+# the alpha-xyz pod should be in running mode with apparmor status
+
+kubectl exec -it nginx -- cat /proc/1/attr/current
+custom-nginx (enforce)
+
+kubectl exec -it external -- sh
+telnet 10.50.0.6 80 <<=== not connected press ^C to end and exit
+
+kubectl exec -it middleware -- sh
+telnet 10.50.0.6 -- sh  <<===  should see 'connected 10.50.0.6'
+get http.1.1 
+exit
