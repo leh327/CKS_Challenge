@@ -12,6 +12,9 @@ Click on each icon to see more details. Once done, click the Check button to tes
 
 SOLUTION:
 
+# Find image with least CRITICAL issue:
+cmd=`docker images |grep nginx |awk '{ print "echo image: " $1 ":" $2 "; trivy image --severity CRITICAL " $1 ":" $2 "| grep CRITICAL ; "}'`
+$cmd
 
 Check to make sure apparmor service is running
 systemctl status apparmor
